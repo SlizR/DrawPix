@@ -343,386 +343,440 @@
     <div class="notification" id="notification"></div>
 
     <script>
-        const WORKER_URL = 'https://pix.markd-voznyuk.workers.dev';
-        const CANVAS_SIZE = 800;
-        const PIXEL_SIZE = 5;
-        const GRID_SIZE = CANVAS_SIZE / PIXEL_SIZE;
+    const WORKER_URL = 'https://pix.markd-voznyuk.workers.dev';
+    const CANVAS_SIZE = 800;
+    const PIXEL_SIZE = 5;
+    const GRID_SIZE = CANVAS_SIZE / PIXEL_SIZE;
 
-        const canvas = document.getElementById('pixelCanvas');
-        const ctx = canvas.getContext('2d');
-        const container = document.getElementById('canvasContainer');
-        
-        const colors = [
-            '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080',
-            '#FFC0CB', '#A52A2A', '#808080', '#000000', '#FFFFFF', '#FFD700', '#4B0082', '#00FF7F'
-        ];
+    const canvas = document.getElementById('pixelCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvasContainer');
 
-        let pixelData = {};
-        let selectedPixel = null;
-        let totalPixels = GRID_SIZE * GRID_SIZE;
-        let coloredPixels = 0;
+    const colors = [
+        '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080',
+        '#FFC0CB', '#A52A2A', '#808080', '#000000', '#FFFFFF', '#FFD700', '#4B0082', '#00FF7F'
+    ];
 
-        let scale = 0.7;
-        let translateX = 0;
-        let translateY = 0;
-        let isDragging = false;
-        let startX = 0;
-        let startY = 0;
-        let lastTouchDistance = 0;
-        let canPaint = false;
-        let holdTimer = null;
+    let pixelData = {};
+    let selectedPixel = null;
+    let totalPixels = GRID_SIZE * GRID_SIZE;
+    let coloredPixels = 0;
 
-        function init() {
-            createColorOptions();
-            loadPixelData();
-            setupCanvas();
-            setupVideoEvents();
-            setupZoomAndPan();
-        }
+    let scale = 0.5;
+    let translateX = 0;
+    let translateY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let lastTouchDistance = 0;
+    let canPaint = false;
+    let holdTimer = null;
+    let pendingPixel = null;
+    let pendingColor = null;
+    let touchSelectTimeout = null;
+    let isTouchSelecting = false;
 
-        function createColorOptions() {
-            const colorOptions = document.getElementById('colorOptions');
-            colors.forEach(color => {
-                const div = document.createElement('div');
-                div.className = 'color-option';
-                div.style.backgroundColor = color;
-                div.onclick = () => {
-                    document.getElementById('customColor').value = color;
-                };
-                colorOptions.appendChild(div);
-            });
-        }
-
-async function loadPixelData() {
-    try {
-        const response = await fetch(`${WORKER_URL}/pixels`);
-        const result = await response.json();
-        pixelData = result.data;
-        console.log('Server logs:', result.logs);
-        coloredPixels = Object.keys(pixelData).length;
-        drawCanvas();
-    } catch (e) {
-        showNotification('Error connection to server');
+    function init() {
+        setupCanvas();
+        createColorOptions();
+        loadPixelData();
+        setupVideoEvents();
+        setupZoomAndPan();
+        updateTransform();
+        updateStats();
     }
+
+    function createColorOptions() {
+        const colorOptions = document.getElementById('colorOptions');
+        colorOptions.innerHTML = '';
+        colors.forEach(color => {
+            const div = document.createElement('div');
+            div.className = 'color-option';
+            div.style.backgroundColor = color;
+            div.onclick = () => {
+                document.getElementById('customColor').value = color;
+            };
+            colorOptions.appendChild(div);
+        });
+    }
+
+    async function loadPixelData() {
+        try {
+            const response = await fetch(`${WORKER_URL}/pixels`);
+            const result = await response.json();
+            pixelData = result.data || {};
+            console.log('Server logs:', result.logs || '');
+            coloredPixels = Object.keys(pixelData).length;
+            redrawBase();
+            drawCanvas();
+            updateStats();
+        } catch (e) {
+            console.error(e);
+            showNotification('Error server-2');
+            redrawBase();
+        }
+    }
+
+    function setupCanvas() {
+        canvas.width = CANVAS_SIZE;
+        canvas.height = CANVAS_SIZE;
+        redrawBase();
+    }
+
+    function redrawBase() {
+        ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.fillStyle = '#f5f5f5';
+        ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i <= GRID_SIZE; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * PIXEL_SIZE, 0);
+            ctx.lineTo(i * PIXEL_SIZE, CANVAS_SIZE);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, i * PIXEL_SIZE);
+            ctx.lineTo(CANVAS_SIZE, i * PIXEL_SIZE);
+            ctx.stroke();
+        }
+    }
+
+    function drawCanvas() {
+        for (const key in pixelData) {
+            if (!Object.prototype.hasOwnProperty.call(pixelData, key)) continue;
+            const [x, y] = key.split('-').map(Number);
+            const color = pixelData[key];
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            ctx.fillStyle = color;
+            ctx.fillRect(x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+        }
+    }
+
+    function setupZoomAndPan() {
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        canvas.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('wheel', handleWheel, { passive: false });
+
+        canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+        document.addEventListener('touchmove', handleTouchMove, { passive: false });
+        document.addEventListener('touchend', handleTouchEnd);
+    }
+
+    function handleMouseDown(e) {
+        e.preventDefault();
+
+        if (pendingPixel !== null) {
+    showNotification("Wait for the ad to finish!");
+    return;
 }
 
-        function setupCanvas() {
-            ctx.fillStyle = '#f5f5f5';
-            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-            
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = 0.5;
-            for (let i = 0; i <= GRID_SIZE; i++) {
-                ctx.beginPath();
-                ctx.moveTo(i * PIXEL_SIZE, 0);
-                ctx.lineTo(i * PIXEL_SIZE, CANVAS_SIZE);
-                ctx.stroke();
-                
-                ctx.beginPath();
-                ctx.moveTo(0, i * PIXEL_SIZE);
-                ctx.lineTo(CANVAS_SIZE, i * PIXEL_SIZE);
-                ctx.stroke();
-            }
-        }
+        if (e.button === 0) {
+            const { canvasX, canvasY } = getCanvasCoordinates(e.clientX, e.clientY);
 
-        function drawCanvas() {
-            for (const key in pixelData) {
-                const [x, y] = key.split('-').map(Number);
-                ctx.fillStyle = pixelData[key];
-                ctx.fillRect(x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
-            }
-        }
+            if (canvasX >= 0 && canvasX < CANVAS_SIZE &&
+                canvasY >= 0 && canvasY < CANVAS_SIZE) {
 
-        function setupZoomAndPan() {
-            canvas.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                return false;
-            });
+                const x = Math.floor(canvasX / PIXEL_SIZE);
+                const y = Math.floor(canvasY / PIXEL_SIZE);
 
-            canvas.addEventListener('mousedown', handleMouseDown);
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-            canvas.addEventListener('wheel', handleWheel, { passive: false });
-
-            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', handleTouchEnd);
-        }
-
-        function handleMouseDown(e) {
-            e.preventDefault();
-            
-            if (e.button === 0) {
-                const { canvasX, canvasY } = getCanvasCoordinates(e.clientX, e.clientY);
-                
-                if (canvasX >= 0 && canvasX < CANVAS_SIZE && 
-                    canvasY >= 0 && canvasY < CANVAS_SIZE) {
-                    
-                    const x = Math.floor(canvasX / PIXEL_SIZE);
-                    const y = Math.floor(canvasY / PIXEL_SIZE);
-                    
-                    if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-                        const pixelKey = `${x}-${y}`;
-                        if (pixelData[pixelKey]) {
-                            showNotification('This pixel is already colored!');
-                            return;
-                        }
-                        selectedPixel = { x, y };
-                        document.getElementById('pixelCoords').textContent = `(${x}, ${y})`;
-                        document.getElementById('colorPicker').style.display = 'flex';
+                if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                    const pixelKey = `${x}-${y}`;
+                    if (pixelData[pixelKey]) {
+                        showNotification('This pixel is already colored!');
                         return;
                     }
+                    selectedPixel = { x, y };
+                    document.getElementById('pixelCoords').textContent = `(${x}, ${y})`;
+                    document.getElementById('colorPicker').style.display = 'flex';
+                    return;
                 }
             }
-            
-            if (e.button === 2) {
+        }
+
+        if (e.button === 2) {
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            container.classList.add('grabbing');
+        }
+    }
+
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        translateX = e.clientX - startX;
+        translateY = e.clientY - startY;
+        updateTransform();
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        container.classList.remove('grabbing');
+    }
+
+    function handleWheel(e) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        scale *= delta;
+        scale = Math.max(0.5, Math.min(10, scale));
+        updateTransform();
+    }
+
+    function handleTouchStart(e) {
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+
+            isTouchSelecting = true;
+
+            touchSelectTimeout = setTimeout(() => {
+                isTouchSelecting = false;
                 isDragging = true;
-                startX = e.clientX - translateX;
-                startY = e.clientY - translateY;
+                startX = touch.clientX - translateX;
+                startY = touch.clientY - translateY;
                 container.classList.add('grabbing');
-            }
+            }, 200);
         }
-
-        function handleMouseMove(e) {
-            if (!isDragging) return;
-            e.preventDefault();
-            translateX = e.clientX - startX;
-            translateY = e.clientY - startY;
-            updateTransform();
-        }
-
-        function handleMouseUp() {
+        else if (e.touches.length === 2) {
+            clearTimeout(touchSelectTimeout);
+            isTouchSelecting = false;
             isDragging = false;
-            container.classList.remove('grabbing');
-        }
 
-        function handleWheel(e) {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            scale *= delta;
-            scale = Math.max(0.5, Math.min(10, scale));
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+        }
+    }
+
+    function handleTouchMove(e) {
+        e.preventDefault();
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (isTouchSelecting) {
+            clearTimeout(touchSelectTimeout);
+            isTouchSelecting = false;
+        }
+        if (e.touches.length === 1 && isDragging) {
+            const touch = e.touches[0];
+            translateX = touch.clientX - startX;
+            translateY = touch.clientY - startY;
             updateTransform();
-        }
+        } else if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-        function handleTouchStart(e) {
-if (e.touches.length === 1) {
-    const touch = e.touches[0];
-    const { canvasX, canvasY } = getCanvasCoordinates(touch.clientX, touch.clientY);
-
-    holdTimer = setTimeout(() => {
-        const x = Math.floor(canvasX / PIXEL_SIZE);
-        const y = Math.floor(canvasY / PIXEL_SIZE);
-        const key = `${x}-${y}`;
-        if (!pixelData[key]) {
-            selectedPixel = { x, y };
-            document.getElementById('pixelCoords').textContent = `(${x}, ${y})`;
-            document.getElementById('colorPicker').style.display = 'flex';
-        } else showNotification('This pixel is already colored!');
-    }, 200);
-}
-        }
-
-        function handleTouchMove(e) {
-            e.preventDefault();
-            if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-            if (e.touches.length === 1 && isDragging) {
-                const touch = e.touches[0];
-                translateX = touch.clientX - startX;
-                translateY = touch.clientY - startY;
+            if (lastTouchDistance > 0) {
+                const delta = distance / lastTouchDistance;
+                scale *= delta;
+                scale = Math.max(0.5, Math.min(10, scale));
                 updateTransform();
-            } else if (e.touches.length === 2) {
-                const dx = e.touches[0].clientX - e.touches[1].clientX;
-                const dy = e.touches[0].clientY - e.touches[1].clientY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (lastTouchDistance > 0) {
-                    const delta = distance / lastTouchDistance;
-                    scale *= delta;
-                    scale = Math.max(0.5, Math.min(10, scale));
-                    updateTransform();
-                }
-                lastTouchDistance = distance;
             }
+            lastTouchDistance = distance;
         }
+    }
 
-        function handleTouchEnd(e) {
-            if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-            if (e.touches.length < 2) {
-                lastTouchDistance = 0;
-            }
-            if (e.touches.length === 0) {
-                isDragging = false;
-                container.classList.remove('grabbing');
-                
-                if (e.changedTouches.length === 1) {
-                    const touch = e.changedTouches[0];
-                    const { canvasX, canvasY } = getCanvasCoordinates(touch.clientX, touch.clientY);
-                    
-                    if (canvasX >= 0 && canvasX < CANVAS_SIZE && 
-                        canvasY >= 0 && canvasY < CANVAS_SIZE) {
-                        
-                        const x = Math.floor(canvasX / PIXEL_SIZE);
-                        const y = Math.floor(canvasY / PIXEL_SIZE);
-                        
-                        if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-                            const pixelKey = `${x}-${y}`;
-                            if (pixelData[pixelKey]) {
-                                showNotification('This pixel is already colored!');
-                                return;
-                            }
-                            selectedPixel = { x, y };
-                            document.getElementById('pixelCoords').textContent = `(${x}, ${y})`;
-                            document.getElementById('colorPicker').style.display = 'flex';
-                        }
-                    }
+    function handleTouchEnd(e) {
+        clearTimeout(touchSelectTimeout);
+
+        if (pendingPixel !== null) {
+    showNotification("Wait for the ad to finish!");
+    return;
+}
+
+        if (isTouchSelecting && e.changedTouches.length === 1) {
+
+            const touch = e.changedTouches[0];
+            const { canvasX, canvasY } = getCanvasCoordinates(touch.clientX, touch.clientY);
+
+            if (canvasX >= 0 && canvasX < CANVAS_SIZE &&
+                canvasY >= 0 && canvasY < CANVAS_SIZE) {
+
+                const x = Math.floor(canvasX / PIXEL_SIZE);
+                const y = Math.floor(canvasY / PIXEL_SIZE);
+                const pixelKey = `${x}-${y}`;
+
+                if (pixelData[pixelKey]) {
+                    showNotification('This pixel is already colored!');
+                } else {
+                    selectedPixel = { x, y };
+                    document.getElementById('pixelCoords').textContent = `(${x}, ${y})`;
+                    document.getElementById('colorPicker').style.display = 'flex';
                 }
             }
         }
 
-        function zoomIn() {
-            scale *= 1.3;
-            scale = Math.min(10, scale);
-            updateTransform();
+        isTouchSelecting = false;
+        isDragging = false;
+        container.classList.remove('grabbing');
+    }
+
+    function zoomIn() {
+        scale *= 1.3;
+        scale = Math.min(10, scale);
+        updateTransform();
+    }
+
+    function zoomOut() {
+        scale *= 0.7;
+        scale = Math.max(0.5, scale);
+        updateTransform();
+    }
+
+    function resetZoom() {
+        scale = 1;
+        translateX = 0;
+        translateY = 0;
+        updateTransform();
+    }
+
+    function updateTransform() {
+        container.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    }
+
+    function getCanvasCoordinates(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+
+        const screenX = clientX - rect.left;
+        const screenY = clientY - rect.top;
+
+        const canvasX = (screenX / rect.width) * CANVAS_SIZE;
+        const canvasY = (screenY / rect.height) * CANVAS_SIZE;
+
+        return { canvasX, canvasY };
+    }
+
+    function closeColorPicker() {
+        document.getElementById('colorPicker').style.display = 'none';
+        selectedPixel = null;
+    }
+
+    async function applyColor() {
+        if (!selectedPixel) {
+            showNotification('Pixel not selected!');
+            return;
         }
 
-        function zoomOut() {
-            scale *= 0.7;
-            scale = Math.max(0.5, scale);
-            updateTransform();
+        const color = document.getElementById('customColor').value;
+
+        if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+            showNotification('Wrong color!');
+            return;
         }
 
-        function resetZoom() {
-            scale = 1;
-            translateX = 0;
-            translateY = 0;
-            updateTransform();
-        }
-
-        function updateTransform() {
-            container.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-        }
-
-        function getCanvasCoordinates(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            
-            const screenX = clientX - rect.left;
-            const screenY = clientY - rect.top;
-            
-            const canvasX = (screenX / rect.width) * CANVAS_SIZE;
-            const canvasY = (screenY / rect.height) * CANVAS_SIZE;
-            
-            return { canvasX, canvasY };
-        }
-
-        function closeColorPicker() {
+        if (!canPaint) {
+            pendingPixel = selectedPixel;
+            pendingColor = color;
             document.getElementById('colorPicker').style.display = 'none';
             selectedPixel = null;
+            showVideo();
+            return;
         }
 
-async function applyColor() {
-    if (!canPaint) {
-        showNotification('Watch the ad first.');
-        return;
-    }
-    
-    if (!selectedPixel) {
-        showNotification('No pixel selected!');
-        return;
+        await sendPixel(selectedPixel, color);
+
+        canPaint = false;
+        selectedPixel = null;
     }
 
-    const color = document.getElementById('customColor').value;
-    
-    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
-        showNotification('Invalid color!');
-        return;
-    }
+    async function sendPixel(pixel, color) {
+        if (!pixel || !color) return;
+        const pixelKey = `${pixel.x}-${pixel.y}`;
 
-    const pixelKey = `${selectedPixel.x}-${selectedPixel.y}`;
-
-    try {
-        const response = await fetch(`${WORKER_URL}/pixel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                x: selectedPixel.x,
-                y: selectedPixel.y,
-                color: color
-            })
-        });
-
-        const result = await response.json();
-        console.log('Server logs:', result.logs);
-
-        if (result.success) {
-            pixelData[pixelKey] = color;
-            coloredPixels++;
-
-            ctx.fillStyle = color;
-            ctx.fillRect(
-                selectedPixel.x * PIXEL_SIZE,
-                selectedPixel.y * PIXEL_SIZE,
-                PIXEL_SIZE,
-                PIXEL_SIZE
-            );
-        } else {
-            showNotification(result.message || 'Error saving pixel');
+        if (pixelData[pixelKey]) {
+            showNotification('This pixel is already colored!');
+            return;
         }
-    } catch (e) {
-        console.error(e);
-        showNotification('Error connecting to server');
-    }
 
-    closeColorPicker();
-    showVideo();
-    selectedPixel = null;
-}
+        try {
+            const response = await fetch(`${WORKER_URL}/pixel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    x: pixel.x,
+                    y: pixel.y,
+                    color: color
+                })
+            });
+
+            const result = await response.json();
+            console.log('Server logs:', result.logs || '');
+
+            if (result.success) {
+                pixelData[pixelKey] = color;
+                coloredPixels++;
+                ctx.fillStyle = color;
+                ctx.fillRect(pixel.x * PIXEL_SIZE, pixel.y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+                showNotification('Pixel saved!');
+            } else {
+                showNotification(result.message || 'Error server-2');
+            }
+        } catch (e) {
+            console.error(e);
+            showNotification('Error server-1');
+        }
+    }
 
     function showVideo() {
-    const overlay = document.getElementById('videoOverlay');
-    const video = document.getElementById('adVideo');
-    const closeBtn = document.getElementById('closeVideo');
+        const overlay = document.getElementById('videoOverlay');
+        const video = document.getElementById('adVideo');
+        const closeBtn = document.getElementById('closeVideo');
 
-    overlay.style.display = 'flex';
-    closeBtn.style.display = 'none';
-    video.currentTime = 0;
+        overlay.style.display = 'flex';
+        closeBtn.style.display = 'none';
+        video.currentTime = 0;
+        video.muted = true;
 
-    video.muted = true;
+        const r = video.play();
+        if (r !== undefined) {
+r.catch(err => {
+    console.log('Autoplay blocked');
+});
+        }
+    }
 
-    const playPromise = video.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(error => {
-            console.log('AD - play blocked, waiting for user interaction', error);
+    function setupVideoEvents() {
+        const video = document.getElementById('adVideo');
+        const closeBtn = document.getElementById('closeVideo');
+        const overlay = document.getElementById('videoOverlay');
+
+        video.addEventListener('ended', () => {
+            closeBtn.style.display = 'block';
+            canPaint = true;
+        });
+
+        closeBtn.addEventListener('click', async () => {
+            overlay.style.display = 'none';
+            closeBtn.style.display = 'none';
+
+            if (pendingPixel && pendingColor) {
+                await sendPixel(pendingPixel, pendingColor);
+                pendingPixel = null;
+                pendingColor = null;
+            }
         });
     }
-}
 
-        function setupVideoEvents() {
-            const video = document.getElementById('adVideo');
-            const closeBtn = document.getElementById('closeVideo');
-            const overlay = document.getElementById('videoOverlay');
-            
-            video.addEventListener('ended', () => {
-                closeBtn.style.display = 'block';
-                canPaint = true;
-            });
-            
-            closeBtn.addEventListener('click', () => {
-                video.pause();
-                overlay.style.display = 'none';
-                closeBtn.style.display = 'none';
-            });
-        }
+    function showNotification(text, duration = 3000) {
+        const el = document.getElementById('notification');
+        if (!el) return;
+        el.textContent = text;
+        el.style.display = 'block';
+        el.style.opacity = '1';
+        clearTimeout(el._hideTimeout);
+        el._hideTimeout = setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => { el.style.display = 'none'; }, 300);
+        }, duration);
+    }
 
-        function showNotification(message) {
-            const notification = document.getElementById('notification');
-            notification.textContent = message;
-            notification.style.display = 'block';
-            setTimeout(() => {
-                notification.style.display = 'none';
-            }, 3000);
-        }
-
-        init();
-    </script>
+    init();
+</script>
 </body>
 </html>
