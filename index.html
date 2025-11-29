@@ -368,7 +368,7 @@ let selectedColorDuringAd = null;
 let totalPixels = GRID_SIZE * GRID_SIZE;
 let coloredPixels = 0;
 
-let scale = 0.7;
+let scale = 0.6;
 let translateX = 0;
 let translateY = 0;
 let isDragging = false;
@@ -388,6 +388,7 @@ function init() {
     updateTransform();
     adVideo.setAttribute('playsinline', '');
     adVideo.setAttribute('preload', 'auto');
+    adVideo.muted = true; 
 }
 
 function createColorOptions() {
@@ -653,7 +654,7 @@ function applyColor() {
 }
 
 async function finalizePixelDraw(color) {
-    if (!selectedPixel) return;
+    if (!selectedPixel) return; 
     
     const pixelKey = `${selectedPixel.x}-${selectedPixel.y}`;
 
@@ -700,34 +701,38 @@ function showVideo() {
     videoOverlay.style.display = 'flex';
     closeVideoBtn.style.display = 'none';
     adVideo.currentTime = 0;
-    adVideo.muted = true; 
 
-    const playPromise = adVideo.play();
+    const attemptPlay = () => {
+        adVideo.muted = true;
+        const playPromise = adVideo.play();
+        
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => {
+                    console.log('Video playing successfully.');
+                    adVideo.muted = false;
+                    videoOverlay.onclick = null;
+                })
+                .catch(error => {
+                    console.warn('Autoplay blocked. User interaction required.');
+                    showNotification('Please click the black area to start the ad.');
+                    videoOverlay.onclick = () => {
+                        adVideo.play().catch(e => console.error('Play failed after click:', e));
+                    };
+                });
+        }
+    };
+
+    adVideo.load();
+    adVideo.onloadedmetadata = attemptPlay;
     
-    if (playPromise !== undefined) {
-        playPromise
-            .then(() => {
-                console.log('Video playing successfully.');
-            })
-            .catch(error => {
-                console.error('Video playback blocked:', error);
-                adVideo.muted = false;
-                showNotification('Video is ready, but browser blocked autoplay. Please click the black area to start the ad.');
-                videoOverlay.onclick = () => {
-                    adVideo.play().then(() => {
-                        videoOverlay.onclick = null;
-                        adVideo.muted = true;
-                    }).catch(e => console.error('Play failed after click:', e));
-                };
-            });
-    }
+    videoOverlay.onclick = () => {
+        attemptPlay();
+    };
 }
 
 function setupVideoEvents() {
-    adVideo.addEventListener('loadeddata', () => {
-        console.log('Video data loaded and ready to play.');
-    });
-
+    
     adVideo.addEventListener('ended', () => {
         closeVideoBtn.style.display = 'block';
         adWatchedAndReady = true;
@@ -740,15 +745,17 @@ function setupVideoEvents() {
         videoOverlay.style.display = 'none';
         closeVideoBtn.style.display = 'none';
         videoOverlay.onclick = null;
+
         if (selectedPixel && adWatchedAndReady && colorToDraw) {
             finalizePixelDraw(colorToDraw);
         } else {
-            if (!selectedPixel) showNotification('Error: Pixel selection was lost.');
-            else if (!adWatchedAndReady) showNotification('Error: Ad was not fully watched.');
+            if (!selectedPixel) console.error('Pixel selection lost on close.');
+            else if (!adWatchedAndReady) console.error('Ad not fully watched on close.');
             
             selectedPixel = null;
             adWatchedAndReady = false;
             selectedColorDuringAd = null;
+            showNotification('Could not place pixel. Ad requirements not met.');
         }
     });
 }
