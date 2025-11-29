@@ -703,47 +703,62 @@ function showVideo() {
     adVideo.currentTime = 0;
     adVideo.muted = true;
 
-    const attemptPlay = () => {
-        const playResult = adVideo.play();
-
-        setTimeout(() => {
-            if (adVideo.currentTime > 0) {
-                console.log('Video playing confirmed (after timeout).');
-                setTimeout(markAdAsReady, 1000); 
-            } else {
-                console.warn('Video failed to advance from the first frame. Manual intervention required.');
-                showNotification('Video is stuck. Please click the black area to force playback.');
-                
-                videoOverlay.onclick = () => {
-                    adVideo.play().then(() => {
-                        console.log('Manual click started video.');
-                        videoOverlay.onclick = null;
-                        setTimeout(markAdAsReady, 1000);
-                    }).catch(e => {
-                        console.error('Play failed after manual click:', e);
-                        showNotification('Could not start video. Check browser settings.');
-                    });
-                };
-            }
-        }, 500);
-
-    };
-
     const markAdAsReady = () => {
         if (!adWatchedAndReady) {
-            if (adVideo.currentTime > 0 || adVideo.duration < 1) { 
-                adWatchedAndReady = true;
-                closeVideoBtn.style.display = 'block';
-                adVideo.pause();
-            } else {
-            }
+            adWatchedAndReady = true;
+            closeVideoBtn.style.display = 'block';
+            adVideo.pause();
+        }
+    };
+    
+    const attemptPlay = () => {
+        const playPromise = adVideo.play();
+        
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => {
+                    console.log('Video playing successfully.');
+                    videoOverlay.onclick = null;
+                })
+                .catch(error => {
+                    console.warn('Autoplay blocked/interrupted. User interaction required.');
+                    showNotification('Click the black area to start the ad.');
+                    
+                    videoOverlay.onclick = () => {
+                        adVideo.play().then(() => {
+                            videoOverlay.onclick = null;
+                        }).catch(e => console.error('Play failed after manual click:', e));
+                    };
+                });
         }
     };
 
-    adVideo.onended = markAdAsReady;
+    adVideo.onended = markAdAsReady; 
+
+    let progressCheckTimer = null;
+    const progressCheck = () => {
+        if (adVideo.currentTime > 0.5) { 
+            adVideo.removeEventListener('timeupdate', progressCheck);
+            if(progressCheckTimer) clearTimeout(progressCheckTimer);
+            
+            console.log('Initial playback confirmed. Waiting for full ad completion.');
+            
+            return;
+        }
+    }
+
+    adVideo.addEventListener('timeupdate', progressCheck);
+    
+    progressCheckTimer = setTimeout(() => {
+        adVideo.removeEventListener('timeupdate', progressCheck);
+        if (adVideo.currentTime < 1) {
+             markAdAsReady();
+             showNotification('Video is stuck. You may close the ad or try clicking the video to continue.');
+        }
+    }, 5000); 
+
     adVideo.onloadedmetadata = attemptPlay;
     adVideo.load();
-    
     videoOverlay.onclick = attemptPlay; 
     
 }
