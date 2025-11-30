@@ -923,7 +923,6 @@ async function finalizePixelDraw(color) {
         if (result.success) {
             pixelData[pixelKey] = color;
             coloredPixels++;
-            document.getElementById('statsText').textContent = `Pixels: ${coloredPixels} / ${totalPixels} | © 2025 Sliz®`;
 
             ctx.fillStyle = color;
             ctx.fillRect(
