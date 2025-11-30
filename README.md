@@ -1,9 +1,10 @@
 # DrawPix: A Digital Canvas by Sliz®
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Live-brightgreen" alt="Project Status: Live">
+  <img src="https://img.shields.io/badge/Wayback Machine-Live-brightgreen" alt="Project Status: Live">
   <img src="https://img.shields.io/badge/Canvas%20Size-800x800-blueviolet" alt="Canvas Size">
   <img src="https://img.shields.io/badge/Pixels-25600-red" alt="Total Pixels">
+  <img src="https://img.shields.io/badge/Website-drawpix.space-blue" alt="Total Pixels">
 </p>
 
 ---
@@ -13,6 +14,8 @@
 **DrawPix** is a collaborative digital art platform designed as an engaging, large-scale pixel canvas. It provides users with a unique opportunity to contribute a single, permanent pixel to a massive **800x800 grid**, resulting in a final image of **25,600 individual pixels**.
 
 The purpose of DrawPix is simple: **create a lasting digital story**. Every pixel placed is a permanent mark, building a shared, evolving masterpiece over time. The project is designed to be interactive, visually rewarding, and accessible to users on both desktop and mobile devices.
+
+Official website of pixels: [DrawPix](https://drawpix.space)
 
 ### Key Features:
 
