@@ -570,6 +570,7 @@ let adWatchedAndReady = false;
 let holdTimer = null;
 let isSingleTouch = false;
 let updateTimerInterval = null;
+let pixelBeforeAd = null;
 
 function init() {
     createColorOptions();
@@ -864,10 +865,11 @@ function applyColor() {
     logPixelInteraction('COLOR CHOSEN', selectedPixel.x, selectedPixel.y, color);
 
     if (!adWatchedAndReady) {
-        selectedColorDuringAd = color;
-        closeColorPicker();
-        showVideo();
-        return;
+selectedColorDuringAd = color;
+pixelBeforeAd = selectedPixel;
+closeColorPicker();
+showVideo();
+return;
     }
 
     finalizePixelDraw(color);
@@ -1028,25 +1030,31 @@ function hidePostAdElements() {
 }
 
 function setupVideoEvents() {
-    
     closeVideoBtn.addEventListener('click', () => {
         const colorToDraw = selectedColorDuringAd;
-        
+
         adVideo.pause();
         videoOverlay.style.display = 'none';
         hidePostAdElements();
         videoOverlay.onclick = null;
-        
-        console.log('%c[AD CLOSE]', 'color: #c0392b; font-weight: bold', `Ad closed. Watched and Ready: ${adWatchedAndReady}. Color to draw: ${!!colorToDraw}`);
 
-        if (selectedPixel && adWatchedAndReady && colorToDraw) {
+        console.log(
+            '%c[AD CLOSE]',
+            'color: #c0392b; font-weight: bold',
+            `Ad closed. Watched and Ready: ${adWatchedAndReady}. Color to draw: ${!!colorToDraw}`
+        );
+
+        if (pixelBeforeAd && adWatchedAndReady && colorToDraw) {
+            selectedPixel = pixelBeforeAd;
             finalizePixelDraw(colorToDraw);
         } else {
-            selectedPixel = null;
-            adWatchedAndReady = false;
-            selectedColorDuringAd = null;
             showNotification('Could not place pixel. Ad requirements not met.');
         }
+
+        pixelBeforeAd = null;
+        selectedPixel = null;
+        adWatchedAndReady = false;
+        selectedColorDuringAd = null;
     });
 }
 
