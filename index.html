@@ -399,7 +399,7 @@
 </div>
 
     <div class="stats">
-    <span id="statsText">© 2025 Sliz®</span>
+    <span id="statsText">© 2025 Sliz® | V600.00</span>
 </div>
 
     <div class="zoom-controls">
@@ -462,6 +462,7 @@ console.log('%c[DEBUG]', 'color: #1abc9c; font-weight: bold', 'Starting DrawPix 
 console.log('%c[Police]', 'color: #00008b; font-weight: bold', 'Logging systems launched successfully.');
 console.log('%c[Police]', 'color: #00008b; font-weight: bold', 'Sending notification...');
 console.log('%c[Police]', 'color: #00008b; font-weight: bold', 'All systems are OK and started.');
+console.log('%c[Police]', 'color: #00008b; font-weight: bold', 'Version of code: 600.00');
 console.log('%c[DrawPix]', 'color: #e74c3c; font-weight: bold', 'Attention! Logging on DrawPix is ​​for developers only! If you find an error, please check it out and let us know.');
 
 const WORKER_URL_DEBUG = 'https://pix.markd-voznyuk.workers.dev';
@@ -908,7 +909,7 @@ function zoomOut() {
 }
 
 function resetZoom() {
-    scale = 1;
+    scale = 0.8;
     translateX = 0;
     translateY = 0;
     updateTransform();
